@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Translation Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --hover-color: #2980b9;
+        }
+
+        body {
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 95%;
+            margin: auto;
+        }
+
+        .filter-box {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .table-responsive {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .btn-custom {
+            background: var(--secondary-color);
+            color: white;
+            margin: 2px;
+            transition: all 0.3s;
+        }
+
+        .btn-custom:hover {
+            background: var(--hover-color);
+            color: white;
+        }
+
+        .status-dot {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            display: inline-block;
+            transition: all 0.3s;
+        }
+
+        .red-dot { background-color: #ff4444; }
+        .green-dot { background-color: #00C851; }
+        .yellow-dot { background-color: #ffbb33; }
+
+        .editing {
+            box-shadow: 0 0 0 2px var(--secondary-color);
+            border-radius: 5px;
+        }
+
+        .toast-container {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1050;
+        }
+
+        .toast {
+            opacity: 0.9;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 2000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        .spinner-border {
+            margin-left: 10px;
+            width: 2rem;
+            height: 2rem;
+        }
+
+        .fixed-pagination {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: white;
+            box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .pagination-container {
+            padding: 10px 0;
+            text-align: center;
+        }
+
+        .content-offset {
+            padding-bottom: 60px;
+        }
+
+        th {
+            position: relative;
+            overflow: hidden;
+            min-width: 10px;
+            max-width: 100%;
+            cursor: col-resize;
+            border-right: 1px solid #ddd;
+            white-space: nowrap;
+        }
+
+        th:hover {
+            cursor: col-resize;
+        }
+
+        .feedback-button {
+            position: fixed;
+            bottom: 10px;
+            right: 20px;
+            z-index: 1100;
+        }
+        
+        .feedback-button .btn {
+            width: 60px;
+            height: 60px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="/">Translation Manager</a>
+            <div class="navbar-text ms-auto">
+                {% if current_user.is_authenticated %}
+                    <span class="text-light me-3">{{ current_user.username }}</span>
+                    <span id="userPoints" class="badge bg-warning me-3">Punti: {{ current_user.points }}</span>
+                    <span id="userBadges" class="badge bg-info me-3">Badge: {{ current_user.badges }}</span>
+                    {% if current_user.role == 'admin' %}
+                        <a href="/admin/users" class="btn btn-sm btn-outline-light me-2">Admin</a>
+                        <a href="/admin/stats" class="btn btn-sm btn-outline-light me-2">Statistiche</a>
+                    {% endif %}
+                    <a href="/updates" class="btn btn-sm btn-outline-light me-2">Aggiornamenti</a>
+                    <a href="/logout" class="btn btn-sm btn-outline-light">Logout</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="feedback-button">
+        <button class="btn btn-primary btn-lg rounded-circle" onclick="showFeedbackModal()">
+            <i class="fas fa-comment-dots"></i>
+        </button>
+    </div>
+
+    <div class="modal fade" id="feedbackModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Invia Suggerimento</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea id="feedbackMessage" class="form-control" rows="4" 
+                            placeholder="Scrivi qui il tuo suggerimento..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="submitFeedback()">Invia</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+        Caricamento dati in corso... <div class="spinner-border" role="status"></div>
+    </div>
+
+    <div class="container content-offset" id="contentContainer">
+        <h1 class="mb-4 text-center">Translation Manager</h1>
+
+        <div class="toast-container" id="toastContainer"></div>
+
+        <div class="filter-box">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="filterCol6" placeholder="Filtra Inglese" value="{{ filter_col6 }}">
+                </div>
+                <div class="col-md-4">
+                    <input type="text" class="form-control" id="filterCol6Translated" placeholder="Filtra Italiano" value="{{ filter_col6_translated }}">
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="perPage">
+                        <option value="10" {% if per_page == 10 %}selected{% endif %}>10 righe</option>
+                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50 righe</option>
+                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100 righe</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">ID</th>
+                        <th style="width: 15%;">Inglese</th>
+                        <th style="width: 15%;">Italiano</th>
+                        <th style="width: 50%;">Suggerisci</th>
+                        <th style="width: 3%;">Stato</th>
+                        <th style="width: 12%;">Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr data-row-id="{{ row['id'] }}">
+                        <td>{{ row['id'] }}</td>
+                        <td>{{ row['col6'] }}</td>
+                        <td class="col6-translated">{{ row['col6_translated'] }}</td>
+                        <td>
+                            <textarea class="form-control suggerimenti" data-id="{{ row['id'] }}" disabled>{{ row['suggerimenti'] }}</textarea>
+                        </td>
+                        <td>
+                            <div class="status-dot {% if row['suggerito'] == 1 %}green-dot{% else %}red-dot{% endif %}" id="dot-{{ row['id'] }}"></div>
+                        </td>
+                        <td>
+                            <button class="btn btn-custom btn-sm" onclick="copyText({{ row['id'] }})"><i class="fas fa-copy"></i></button>
+                            <button class="btn btn-custom btn-sm" onclick="toggleEdit({{ row['id'] }})"><i class="fas fa-edit"></i></button>
+                            <button class="btn btn-success btn-sm" onclick="saveChanges({{ row['id'] }})"><i class="fas fa-save"></i></button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteSuggestion({{ row['id'] }})"><i class="fas fa-trash"></i></button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="fixed-pagination">
+        <nav aria-label="Navigazione pagine">
+            <ul class="pagination justify-content-center pagination-container">
+                {% if page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page - 1 }}&per_page={{ per_page }}&filter_col6={{ filter_col6 }}&filter_col6_translated={{ filter_col6_translated }}" aria-label="Precedente">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+                {% for p in range(min_page, max_page + 1) %}
+                    <li class="page-item {% if p == page %}active{% endif %}">
+                        <a class="page-link" href="?page={{ p }}&per_page={{ per_page }}&filter_col6={{ filter_col6 }}&filter_col6_translated={{ filter_col6_translated }}">{{ p }}</a>
+                    </li>
+                {% endfor %}
+                {% if page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page + 1 }}&per_page={{ per_page }}&filter_col6={{ filter_col6 }}&filter_col6_translated={{ filter_col6_translated }}" aria-label="Successivo">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+    </div>
+
+    <div class="modal fade" id="editSuggestionModal" tabindex="-1" aria-labelledby="editSuggestionModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editSuggestionModalLabel">Modifica Suggerimenti</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="contentSelection" class="form-label">Seleziona contenuto da mostrare:</label>
+                        <select class="form-select" id="contentSelection">
+                            <option value="col6">Inglese</option>
+                            <option value="col6_translated">Italiano</option>
+                        </select>
+                    </div>
+                    <div id="selectedContent" class="mb-3 p-2 border rounded"></div>
+                    <textarea class="form-control" id="modalSuggerimenti" rows="5"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="pasteFromClipboard()">Copia/Incolla</button>
+                    <button type="button" class="btn btn-primary" onclick="saveModalChanges()">Salva</button>
+                    <button type="button" class="btn btn-danger" data-bs-dismiss="modal">Annulla</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let filterTimeout;
+
+        window.addEventListener('load', function () {
+            document.getElementById('loadingOverlay').style.display = 'none';
+            document.getElementById('contentContainer').style.display = 'block';
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const thElements = document.querySelectorAll('th');
+            let isResizing = false;
+            let startX, startWidth, th;
+
+            thElements.forEach(thElement => {
+                thElement.addEventListener('mousedown', function (e) {
+                    if (e.offsetX > thElement.offsetWidth - 10) {
+                        isResizing = true;
+                        startX = e.pageX;
+                        startWidth = thElement.offsetWidth;
+                        th = thElement;
+                        document.addEventListener('mousemove', resizeColumn);
+                        document.addEventListener('mouseup', stopResize);
+                    }
+                });
+
+                thElement.addEventListener('mousemove', function (e) {
+                    if (e.offsetX > thElement.offsetWidth - 10) {
+                        thElement.style.cursor = 'col-resize';
+                    } else {
+                        thElement.style.cursor = 'default';
+                    }
+                });
+            });
+
+            function resizeColumn(e) {
+                if (isResizing && th) {
+                    const width = startWidth + (e.pageX - startX);
+                    th.style.width = `${width}px`;
+                }
+            }
+
+            function stopResize() {
+                isResizing = false;
+                document.removeEventListener('mousemove', resizeColumn);
+                document.removeEventListener('mouseup', stopResize);
+            }
+        });
+
+        document.getElementById('filterCol6').addEventListener('input', () => delayedApplyFilters('filterCol6'));
+        document.getElementById('filterCol6Translated').addEventListener('input', () => delayedApplyFilters('filterCol6Translated'));
+
+        function delayedApplyFilters(inputId) {
+            clearTimeout(filterTimeout);
+            filterTimeout = setTimeout(() => applyFilters(inputId), 1000);
+        }
+
+        function applyFilters(inputId) {
+            const activeElement = document.getElementById(inputId);
+
+            const params = new URLSearchParams({
+                filter_col6: document.getElementById('filterCol6').value,
+                filter_col6_translated: document.getElementById('filterCol6Translated').value,
+                per_page: document.getElementById('perPage').value,
+                page: 1
+            });
+
+            window.location.href = `/?${params.toString()}`;
+
+            window.addEventListener('load', () => {
+                activeElement.focus();
+            });
+        }
+
+        function showToast(message, type = 'success') {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast align-items-center text-bg-${type} border-0`;
+            toast.innerHTML = `
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>`;
+            toastContainer.appendChild(toast);
+
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+
+            toast.addEventListener('hidden.bs.toast', () => toast.remove());
+        }
+
+        function copyText(id) {
+            const row = document.querySelector(`tr[data-row-id="${id}"]`);
+            const col6TranslatedValue = row.querySelector('.col6-translated').textContent.trim();
+            const textarea = row.querySelector('.suggerimenti');
+
+            textarea.value = col6TranslatedValue;
+            textarea.disabled = false;
+            textarea.focus();
+
+            updateDotColor(id, 2);
+            showToast('Testo copiato nei suggerimenti!', 'success');
+        }
+
+        function updateDotColor(id, status) {
+            const dot = document.getElementById(`dot-${id}`);
+            dot.className = `status-dot ${status === 1 ? 'green-dot' : status === 2 ? 'yellow-dot' : 'red-dot'}`;
+        }
+
+
+        function updateUserInfo() {
+            fetch('/get-user-info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error(data.error);
+                        return;
+                    }
+
+                    // Aggiorna i punti
+                    const pointsElement = document.getElementById('userPoints');
+                    if (pointsElement) {
+                        pointsElement.textContent = `Punti: ${data.points}`;
+                    }
+
+                    // Aggiorna i badge
+                    const badgesElement = document.getElementById('userBadges');
+                    if (badgesElement) {
+                        badgesElement.textContent = `Badge: ${data.badges}`;
+                    }
+                })
+                .catch(error => console.error('Errore durante il recupero delle informazioni utente:', error));
+        }
+
+        function toggleEdit(id) {
+            const row = document.querySelector(`tr[data-row-id="${id}"]`);
+            const col6 = row.querySelector('td:nth-child(2)').textContent.trim();
+            const col6Translated = row.querySelector('.col6-translated').textContent.trim();
+            const suggerimenti = row.querySelector('.suggerimenti').value.trim();
+
+            document.getElementById('contentSelection').value = 'col6';
+            document.getElementById('selectedContent').textContent = col6;
+            document.getElementById('modalSuggerimenti').value = suggerimenti;
+
+            const modal = new bootstrap.Modal(document.getElementById('editSuggestionModal'));
+            modal.show();
+
+            updateDotColor(id, 2);
+
+            document.getElementById('contentSelection').addEventListener('change', function() {
+                const selectedContent = this.value === 'col6' ? col6 : col6Translated;
+                document.getElementById('selectedContent').textContent = selectedContent;
+            });
+
+            document.getElementById('editSuggestionModal').setAttribute('data-row-id', id);
+        }
+
+        function pasteFromClipboard() {
+            const selectedContent = document.getElementById('selectedContent').textContent;
+            document.getElementById('modalSuggerimenti').value = selectedContent;
+            showToast('Contenuto incollato nei suggerimenti!', 'success');
+        }
+
+        function saveModalChanges() {
+            const id = document.getElementById('editSuggestionModal').getAttribute('data-row-id');
+            const suggerimenti = document.getElementById('modalSuggerimenti').value.trim();
+
+            fetch('/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: id, suggerimenti: suggerimenti})
+            }).then(response => {
+                if (response.ok) {
+                    const row = document.querySelector(`tr[data-row-id="${id}"]`);
+                    row.querySelector('.suggerimenti').value = suggerimenti;
+                    updateDotColor(id, 1);
+                    showToast('Suggerimento salvato!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('editSuggestionModal')).hide();
+
+                    // Assegna 5 punti per aver suggerito una modifica
+                    fetch('/update-points', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: {{ current_user.id }}, points: 5})
+                    });
+                } else {
+                    showToast('Errore durante il salvataggio.', 'danger');
+                }
+            }).catch(() => showToast('Errore durante la comunicazione con il server.', 'danger'));
+        }
+
+        function saveChanges(id) {
+            const textarea = document.querySelector(`textarea[data-id="${id}"]`);
+            fetch('/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: id, suggerimenti: textarea.value.trim()})
+            }).then(response => {
+                if (response.ok) {
+                    textarea.disabled = true;
+                    updateDotColor(id, 1);
+                    showToast('Suggerimento salvato!', 'success');
+
+                    // Aggiorna i punti e i badge
+                    fetch('/update-points', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: {{ current_user.id }}, points: 5})
+                    }).then(response => {
+                        if (response.ok) {
+                            console.log("Punti aggiornati con successo");
+                            updateUserInfo();
+                        } else {
+                            console.error("Errore durante l'aggiornamento dei punti");
+                        }
+                    }).catch(error => console.error('Errore durante la comunicazione con il server:', error));
+                } else {
+                    showToast('Errore durante il salvataggio.', 'danger');
+                }
+            }).catch(() => showToast('Errore durante la comunicazione con il server.', 'danger'));
+        }
+
+        function deleteSuggestion(id) {
+            const textarea = document.querySelector(`textarea[data-id="${id}"]`);
+            fetch('/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id: id})
+            }).then(response => {
+                if (response.ok) {
+                    textarea.value = '';
+                    textarea.disabled = true;
+                    updateDotColor(id, 0);
+                    showToast('Suggerimento eliminato!', 'success');
+
+                    // Sottrai 50 punti all'utente
+                    fetch('/subtract-points', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({user_id: {{ current_user.id }}, points: 50})
+                    }).then(response => {
+                        if (response.ok) {
+                            console.log("50 punti sottratti con successo");
+                            updateUserInfo(); // Aggiorna i punti visualizzati
+
+                            // Mostra il messaggio di conferma
+                            showToast('Suggerimento eliminato! 50 punti sottratti.', 'warning');
+                        } else {
+                            console.error("Errore durante la sottrazione dei punti");
+                            showToast('Errore durante la sottrazione dei punti.', 'danger');
+                        }
+                    }).catch(error => {
+                        console.error('Errore durante la comunicazione con il server:', error);
+                        showToast('Errore durante la comunicazione con il server.', 'danger');
+                    });
+                } else {
+                    showToast('Errore durante l\'eliminazione.', 'danger');
+                }
+            }).catch(() => showToast('Errore durante la comunicazione con il server.', 'danger'));
+        }
+
+        function showFeedbackModal() {
+            new bootstrap.Modal(document.getElementById('feedbackModal')).show();
+        }
+
+        function submitFeedback() {
+            const message = document.getElementById('feedbackMessage').value;
+            fetch('/submit-feedback', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({message: message})
+            }).then(response => {
+                if(response.ok) {
+                    showToast('Feedback inviato con successo!', 'success');
+                    bootstrap.Modal.getInstance(document.getElementById('feedbackModal')).hide();
+                    document.getElementById('feedbackMessage').value = '';
+                }
+            });
+        }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
